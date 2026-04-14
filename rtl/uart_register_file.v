@@ -368,32 +368,35 @@ Version                 :       1.0
   always @(posedge PCLK)
     begin : L361_IIR
       if(PRESETn == 1'b0) 
-	begin
-    	  IIR <= 4'h1; // No interrupt (lowest priority but reset removes all interrupts)
-  	end
+	      begin
+    	    IIR <= 4'h1; // No interrupt (lowest priority but reset removes all interrupts)
+  	    end
       else 
+        //$display("Rx interrupt = %0d",rx_int);
         begin
-    	  if((ls_int == 2'b1) && (IER[2] == 1'b1)) // IER[2] line status interrupt enable
-	    begin
+    	    if((ls_int == 2'b1) && (IER[2] == 1'b1)) // IER[2] line status interrupt enable
+	          begin
       	      IIR <= 4'h6; // Highest priority (If ls_interrupt is read by cpu -> it gets reseted)
-    	    end
-    	  else if((rx_int == 1'b1) && (IER[0] == 1'b1)) // IER[0] received data available interrupt enable
-	    begin
-      	      IIR <= 4'h4;
-    	    end
-	  else if(time_out == 1'b1)
+    	      end
+    	    else if((rx_int == 1'b1) && (IER[0] == 1'b1)) // IER[0] received data available interrupt enable
+	          begin
+      	        IIR <= 4'h4;
+    	      end
+	        else if(time_out == 1'b1)
             begin
-	      IIR <= 4'hc;
-	    end
-    	  else if((tx_int == 1'b1) && (IER[1] == 1'b1)) // IER[1] THR empty interrupt enable 
-	    begin
+	            IIR <= 4'hc;
+	          end
+    	    else if((tx_int == 1'b1) && (IER[1] == 1'b1)) // IER[1] THR empty interrupt enable 
+	          begin
       	      IIR <= 4'h2;
-    	    end
-    	  else 
-	    begin
+    	      end
+    	    else 
+	          begin
       	      IIR <= 4'h1; // Lowest priority 
-    	    end
-  	end
+    	      end
+        //   $display("IIR in Design  = %0d",IIR);
+        //   $display("IER  = %0d",IER[0]);
+  	  end
     end
 /* IIR --> Priority concept : 
 if(ls_int && IER[2])       IIR = 6;

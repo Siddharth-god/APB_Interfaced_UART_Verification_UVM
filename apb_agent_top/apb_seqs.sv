@@ -1,3 +1,4 @@
+
 //xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx SEQUENCES xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
 
 //-----------------------------------------------------APB SEQS-------------------------------------------------------
@@ -7,43 +8,6 @@ class apb_seq_base extends uvm_sequence #(apb_xtn);
     function new(string name="apb_seq_base");
         super.new(name);
     endfunction
-
-    // Reusable write 
-    task do_write(bit[31:0]addr, bit[31:0]data);
-        start_item(req);
-        assert(req.randomize() with {PADDR==addr; PWRITE==1; PWDATA==data;});
-        finish_item(req);
-    endtask
-
-    // Reusable read 
-    task do_read(bit[31:0]addr);
-        start_item(req);
-        assert(req.randomize() with {PADDR==addr; PWRITE==0;});
-        finish_item(req);
-    endtask
-
-    // Flexible config task
-    task uart_reg_config(
-        bit[7:0] lcr_val = 8'b0000_0011,
-        bit[7:0] fcr_val = 8'b0000_0110,
-        bit[7:0] ier_val = 8'b0000_0101,
-        int divisor = 27
-    );
-        // DIVISOR MSB
-        do_write(32'h20, divisor[15:8]); // this divisor value will be 0, as 27 is not in the range for this.
-
-        // DIVISOR LSB
-        do_write(32'h1C, divisor[7:0]);  // 27 will automatically falls inside 7:0
-
-        // LCR REG - Flexibal
-        do_write(32'hC, lcr_val); //--> Used to configure the data size and behaviour
-
-        // FCR REG - Flexibal
-        do_write(32'h08, fcr_val); // FCR = 8'b0000_0110; This resets FIFO every sequence start - This does not check real behaviour. 
- 
-        // IER REG - Flexibal
-        do_write(32'h04, ier_val);
-    endtask
 endclass 
 
 
@@ -59,7 +23,6 @@ class apb_half_duplex extends apb_seq_base;
         //super.body();
         req = apb_xtn::type_id::create("req");
 
-    // Why Divisor latch we have configured first ?? --> DVL decides the baud rate for the UART so it must be confgured first.
         // DIVISOR LATCH REG - MSB
         start_item(req);
         assert(req.randomize() with {PADDR==32'h20; PWRITE==1; PWDATA==0;});
@@ -67,7 +30,7 @@ class apb_half_duplex extends apb_seq_base;
 
         // DIVISOR LATCH REG - LSB
         start_item(req);
-        assert(req.randomize() with {PADDR==32'h1C; PWRITE==1; PWDATA==27;}); // 27 is the value of baud rate we have generated, using frequency. Another side value will be generated in the TOP module, because another UART side is not a DUT it is AGENT in our case so we cannot drive the value to agent, we have to take it from TOP using CONFIG class. 
+        assert(req.randomize() with {PADDR==32'h1C; PWRITE==1; PWDATA==54;}); // 27 is the value of baud rate we have generated, using frequency. Another side value will be generated in the TOP module, because another UART side is not a DUT it is AGENT in our case so we cannot drive the value to agent, we have to take it from TOP using CONFIG class. 
         finish_item(req); // mam passing 54 as pwdata for div lsb
 
         // LINE CONTROL REG --> Used to configure the data size and behaviour
@@ -85,11 +48,10 @@ class apb_half_duplex extends apb_seq_base;
         assert(req.randomize() with {PADDR==32'h04; PWRITE==1; PWDATA==8'b0000_0101;});
         finish_item(req);
 
-        // THR REG --> 
-        start_item(req);
-        assert(req.randomize() with {PADDR==32'h0; PWRITE==1; PWDATA==5;});
-        finish_item(req);
-
+        // // THR REG -->  // We must not provide thr here. WHy ?? because our sb condition relies on thr empty, agar thr has value then it will always fail and go to full duplex and half duplex won't be printing. 
+        // start_item(req);
+        // assert(req.randomize() with {PADDR==32'h0; PWRITE==1; PWDATA==5;});
+        // finish_item(req);
     endtask
 endclass 
 
@@ -104,8 +66,16 @@ class apb_read_seq extends apb_seq_base;
     task body();
         //super.body(); 
         req = apb_xtn::type_id::create("req");
+        $display("<<<<<<<<----------<<<<<<<< READ sequence started >>>>>>>>---------->>>>>>>>");
 
-        // FIFO CONTROL REG --> 
+        // IIR REG --> 
+        // do begin
+        //     start_item(req);
+        //     assert(req.randomize() with {PADDR==32'h08; PWRITE==0;}); // IIR
+        //     finish_item(req);
+        //     get_response(req);
+        // end while (req.IIR != 4 || req.IIR != 6);
+
         start_item(req);
         //! we cannot solve the interrupt from another uart, as interrupt cannot be sent to uart 2 (so we need to read IIR here)
         assert(req.randomize() with {PADDR==32'h08; PWRITE==0;}) // IIR is Read only reg. 
@@ -120,200 +90,203 @@ class apb_read_seq extends apb_seq_base;
         end
 
         if(req.IIR == 6) begin // When IIR == 0x4 (Interrupt --> READ LINE STATUS REG => Overrun,parity,framing,break errors)
-        // RBR  
+        // LSR  
         start_item(req);
         assert(req.randomize() with {PADDR==32'h14; PWRITE==0;})
         finish_item(req);
         end
+
     endtask
 
-// why are we not checking Line status interrupt ? Because it has errors ?? 
-// We are getting the interrupts but where are we resolving them ? How we do that ? ask mam
 endclass 
 
-/*
 //------------------------------------------------ FULL DUPLEX SEQUENCE ------------------------------------------------
-class full_duplex extends apb_seq_base;
-    `uvm_object_utils(full_duplex)
+class apb_full_duplex extends apb_seq_base;
+    `uvm_object_utils(apb_full_duplex)
 
-    function new(string name="full_duplex");
+    function new(string name="apb_full_duplex");
         super.new(name);
     endfunction
 
-    task body();
+     task body();
+        //super.body();
         req = apb_xtn::type_id::create("req");
+        $display("<<<<<<<<----------<<<<<<<< Full Duplex sequence started >>>>>>>>---------->>>>>>>>");
 
-        uart_reg_config();
+        // DIVISOR LATCH REG - MSB
+        start_item(req);
+        assert(req.randomize() with {PADDR==32'h20; PWRITE==1; PWDATA==0;});
+        finish_item(req);
+
+        // DIVISOR LATCH REG - LSB
+        start_item(req);
+        assert(req.randomize() with {PADDR==32'h1C; PWRITE==1; PWDATA==54;});  
+        finish_item(req); 
+
+        // LINE CONTROL REG 
+        start_item(req);
+        assert(req.randomize() with {PADDR==32'hC; PWRITE==1; PWDATA==8'b0000_0011;});
+        finish_item(req);
+
+        // FIFO (ENABLE)CONTROL REG 
+        start_item(req);
+        assert(req.randomize() with {PADDR==32'h08; PWRITE==1; PWDATA==8'b0000_0110;});
+        finish_item(req);
+
+        // INTERRUPT ENABLE 
+        start_item(req);
+        assert(req.randomize() with {PADDR==32'h04; PWRITE==1; PWDATA==8'b0000_0101;});
+        finish_item(req);
 
         // THR REG --> 
-        fork
-            do_write(32'h0, 32'h55); // transmit 
-            do_read(32'h0); // Receive 
-        join
+        start_item(req);
+        assert(req.randomize() with {PADDR==32'h0; PWRITE==1; PWDATA==55;});
+        finish_item(req);
 
     endtask
 endclass 
 
 
 //------------------------------------------------ LOOPBACK SEQUENCE ------------------------------------------------
-class loopback extends apb_seq_base;
-    `uvm_object_utils(loopback)
+class apb_loopback extends apb_seq_base;
+    `uvm_object_utils(apb_loopback)
 
-    function new(string name="loopback");
+    function new(string name="apb_loopback");
         super.new(name);
     endfunction
 
     task body();
         req = apb_xtn::type_id::create("req");
+        $display("<<<<<<<<----------<<<<<<<< Loopback sequence started >>>>>>>>---------->>>>>>>>");
 
-        uart_reg_config();
+        // DIVISOR LATCH REG - MSB
+        start_item(req);
+        assert(req.randomize() with {PADDR==32'h20; PWRITE==1; PWDATA==0;});
+        finish_item(req);
 
-        do_write(32'h10, 8'b0001_0000); // MCR loopback enable [5th bit for loopback] (do write can take upto 32 bits but we can also give 8 bits other will become 0)
+        // DIVISOR LATCH REG - LSB
+        start_item(req);
+        assert(req.randomize() with {PADDR==32'h1C; PWRITE==1; PWDATA==54;});  
+        finish_item(req); 
 
-        do_write(32'h0, 32'h5A); // THR → data goes into TX → looped back internally → appears in RX 
-        do_read(32'h0); // And we also need to read the value that we pass (as loopback gives same value back)
-// NOTE : loop back gets read on the same UART side cannot be sent to another uart. 
+        // LINE CONTROL REG 
+        start_item(req);
+        assert(req.randomize() with {PADDR==32'hC; PWRITE==1; PWDATA==8'b0000_0011;});
+        finish_item(req);
+
+        // FIFO (ENABLE)CONTROL REG 
+        start_item(req);
+        assert(req.randomize() with {PADDR==32'h08; PWRITE==1; PWDATA==8'b0000_0110;});
+        finish_item(req);
+
+        // INTERRUPT ENABLE 
+        start_item(req);
+        assert(req.randomize() with {PADDR==32'h04; PWRITE==1; PWDATA==8'b0000_1101;});
+        finish_item(req);
+
+        // MCR loopback  
+        start_item(req);
+        assert(req.randomize() with {PADDR==32'h10; PWRITE==1; PWDATA==8'b0001_0000;});
+        finish_item(req);
+
+        // THR REG --> 
+        start_item(req);
+        assert(req.randomize() with {PADDR==32'h0; PWRITE==1; PWDATA==55;});
+        finish_item(req); 
     endtask
 endclass 
 
 
-//------------------------------------------------ PARITY ERR SEQUENCE ------------------------------------------------
-class parity_seq extends apb_seq_base;
-    `uvm_object_utils(parity_seq)
+//------------------------------------------------ OVERRUN SEQUENCE ------------------------------------------------
+class apb_overrun_seq extends apb_seq_base;
 
-    function new(string name="parity_seq");
+    `uvm_object_utils(apb_overrun_seq)
+
+    function new(string name = "apb_overrun_seq");
         super.new(name);
     endfunction
 
     task body();
+
         req = apb_xtn::type_id::create("req");
 
-        uart_reg_config(.lcr_val(8'b0000_1011)); // Parity enable [odd parity]
+        // DIV1 MSB
+        start_item(req);
+        assert(req.randomize() with { PADDR == 32'h20; PWRITE == 1; PWDATA == 0; });
+        finish_item(req);
 
-        do_write(32'h0, 32'h33);
-// NOTE : Parity is checked on another UART, so no need to read here. 
-    endtask
-endclass 
+        // DIV2 LSB
+        start_item(req);
+        assert(req.randomize() with { PADDR == 32'h1c; PWRITE == 1; PWDATA == 54; });
+        finish_item(req);
 
+        // NORMAL_MODE_LCR
+        start_item(req);
+        assert(req.randomize() with { PADDR == 32'h0c; PWRITE == 1; PWDATA == 8'h0000_0111; }); // How to get the LCR from test here ?
+        finish_item(req);
 
-//------------------------------------------------ BREAK ERR SEQUENCE ------------------------------------------------
-class break_req extends apb_seq_base;
-    `uvm_object_utils(break_req)
+        // FCR
+        start_item(req);
+        assert(req.randomize() with { PADDR == 32'h08; PWRITE == 1; PWDATA == 8'b00000100; });
+        finish_item(req);
 
-    function new(string name="break_req");
-        super.new(name);
-    endfunction
+        // IER
+        start_item(req);start_item(req);
+        assert(req.randomize() with { PADDR == 32'h04; PWRITE == 1; PWDATA == 8'b00000101; });
+        finish_item(req);
 
-    task body();
-        req = apb_xtn::type_id::create("req");
-
-        uart_reg_config(.lcr_val(8'b0100_0011)); // Break Enable 
-
-        do_write(32'h0, 32'h00); // THR --> Privide 00 with parity enable to check if UART gives the break error
-
-// NOTE : We don't read anything (check happens in another UART)
-    endtask
-endclass 
-
-
-//------------------------------------------------ OVERRUN ERR SEQUENCE ------------------------------------------------
-class overrun_seq extends apb_seq_base;
-    `uvm_object_utils(overrun_seq)
-
-    function new(string name="overrun_seq");
-        super.new(name);
-    endfunction
-
-    task body();
-        req = apb_xtn::type_id::create("req");
-
-        uart_reg_config();
-
-        repeat(17) // Flooding THR to check the Overrun error. (FIFO) capacity 16
-            do_write(32'h0, $urandom_range(0,255));  
-
-    endtask
-endclass 
-
-
-
-//------------------------------------------------ THR_EMPTY SEQUENCE ------------------------------------------------
-class thr_empty_seq extends apb_seq_base;
-    `uvm_object_utils(thr_empty_seq)
-
-    function new(string name="thr_empty_seq");
-        super.new(name);
-    endfunction
-
-    task body();
-        req = apb_xtn::type_id::create("req");
-
-        uart_reg_config();
-
-        do_write(32'h0, 8'hAA);
-
-         do_read(32'h08); // Reading IIR 
-        // Alternate way => 
-        // do_read(32'h14);
-        get_response(req); // From Driver getting the response 
-
-        if(req.IIR == 2) begin // Wait till IIR is 2 ==> When another side UART reads everything this will hit. 
-            `uvm_info(get_type_name(), "THR EMPTY interrupt received", UVM_MEDIUM) //===? IER to enable hi nahi hoga to how we will get this interrupt 
+        repeat (17) begin
+            start_item(req);
+            assert(req.randomize() with { PADDR == 32'h00; PWRITE == 1; });
+            finish_item(req);
         end
-        //Alternate => 
-        // if(req.IIR == 2) begin 
-        //     do_read(32'h14);  // Reading LSR when IIR empty, then In SB we can check.(No need to do this way)
-        // end
-        
     endtask
-endclass 
+endclass
 
 
-//------------------------------------------------ FRAMING ERR SEQUENCE ------------------------------------------------
-class framing_seq extends apb_seq_base;
-    `uvm_object_utils(framing_seq)
 
-    function new(string name="framing_seq");
+//------------------------------------------------ FRAMING SEQUENCE ------------------------------------------------
+class apb_framing_seq extends apb_seq_base;
+
+    `uvm_object_utils(apb_framing_seq)
+
+    function new(string name = "apb_framing_seq");
         super.new(name);
     endfunction
 
     task body();
+
+        super.body();
+
         req = apb_xtn::type_id::create("req");
 
-        // 2 stop bits (can mismatch with other side)
-        uart_reg_config(.lcr_val(8'b0000_0111));
+        // DIV1 MSB
+        start_item(req);
+        assert(req.randomize() with { PADDR == 32'h20; PWRITE == 1; PWDATA == 0; });
+        finish_item(req);
 
-        do_write(32'h0, 8'hF0);
+        // DIV2 LSB
+        start_item(req);
+        assert(req.randomize() with { PADDR == 32'h1c; PWRITE == 1; PWDATA == 54; });
+        finish_item(req);
+
+        // NORMAL_MODE_LCR
+        start_item(req);
+        assert(req.randomize() with { PADDR == 32'h0c; PWRITE == 1; PWDATA == 8'h0000_0011; }); // How to get the LCR from test here ?
+        finish_item(req);
+
+        // FCR
+        start_item(req);
+        assert(req.randomize() with { PADDR == 32'h08; PWRITE == 1; PWDATA == 8'b00000110; });
+        finish_item(req);
+
+        // IER
+        start_item(req);start_item(req);
+        assert(req.randomize() with { PADDR == 32'h04; PWRITE == 1; PWDATA == 8'b00000100; });
+        finish_item(req);
+
+        start_item(req);
+        assert(req.randomize() with { PADDR == 32'h00; PWRITE == 1; });
+        finish_item(req);
     endtask
-endclass 
-
-
-//------------------------------------------------ TIMEOUT ERR SEQUENCE ------------------------------------------------
-class timeout_seq extends apb_seq_base;
-    `uvm_object_utils(timeout_seq)
-
-    function new(string name="timeout_seq");
-        super.new(name);
-    endfunction
-
-    task body();
-        req = apb_xtn::type_id::create("req");
-
-        uart_reg_config();
-
-        // Putting data (simulate RX pending)
-        do_write(32'h0, 8'h55);
-
-        // Not Reading Intentionally
-
-        // checks interrupt
-        do_read(32'h08);
-        get_response(req);
-
-        if(req.IIR == 8'hC) begin // Wait till interrupt - No read happens => Time out error
-            `uvm_info(get_type_name(), "TIMEOUT interrupt received", UVM_MEDIUM)
-        end
-
-    endtask
-endclass 
-    */
+endclass

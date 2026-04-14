@@ -4,6 +4,7 @@ class env_config extends uvm_object;
 
     uart_agent_config uart_cfg; 
     apb_agent_config apb_cfg;
+    uart_reg_block regmodel; 
 
     function new(string name="env_config");
         super.new(name);

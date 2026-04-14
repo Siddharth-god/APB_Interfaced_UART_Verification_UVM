@@ -87,7 +87,12 @@ Version                 :       1.0
    always@(*)
      fifo_empty = ~(|count);
    
-   always@(*)
+   always@(*) begin 
      fifo_full = (count == 5'b10000);
+
+     if(fifo_full) begin 
+        $display("Rx fifo full #######################################");
+     end
+   end
  
  endmodule

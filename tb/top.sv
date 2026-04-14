@@ -46,17 +46,19 @@ module top;
 
     // Generating Baud tick for UART VIP  ==> We did not write any logic for Baud tick in Sequence ?? 
     always_ff@(posedge clk2 or negedge PRESETn)
-        if(!PRESETn) begin 
-            baud_cnt       <= 0; 
-            UART_IF.baud_o <= 0;
-        end
-        else if(baud_cnt == DIVISOR - 1) begin 
-            baud_cnt       <= 0;
-            UART_IF.baud_o <= 1; 
-        end
-        else begin 
-            baud_cnt++;
-            UART_IF.baud_o <= 0; 
+        begin 
+            if(!PRESETn) begin 
+                baud_cnt       <= 0; 
+                UART_IF.baud_o <= 0;
+            end
+            else if(baud_cnt == DIVISOR - 1) begin 
+                baud_cnt       <= 0;
+                UART_IF.baud_o <= 1; 
+            end
+            else begin 
+                baud_cnt++;
+                UART_IF.baud_o <= 0; 
+            end
         end
 
     // DUT Instantiation (UART)
@@ -81,7 +83,7 @@ module top;
         // Set virtual interfaces in UVM virtual db
         uvm_config_db #(virtual uart_if)::set(null, "*", "uart_if", UART_IF);
         uvm_config_db #(virtual apb_if)::set(null, "*", "apb_if", APB_IF);
-        run_test("half_duplex_test");
+        run_test();
     end
 endmodule 
 

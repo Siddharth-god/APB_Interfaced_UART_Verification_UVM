@@ -24,6 +24,8 @@ package test_pkg;
   `include "../uart_agent_top/uart_agent_top.sv"
 
   // TB files
+  `include "../tb/registers.sv"
+  `include "../tb/reg_block.sv"
   `include "../tb/env_config.sv"
   `include "../tb/vseq.sv"
   `include "../tb/vseqr.sv"

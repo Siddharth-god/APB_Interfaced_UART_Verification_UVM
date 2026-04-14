@@ -30,7 +30,7 @@ interface apb_if(input bit PCLK);
     endclocking 
 
     clocking apb_mon_cb@(posedge PCLK);
-        
+        default input #1;
         input PRESETn;
         input PADDR;
         input PWDATA;
