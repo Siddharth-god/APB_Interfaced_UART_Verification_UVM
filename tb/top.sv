@@ -75,7 +75,8 @@ module top;
         .PSLVERR (APB_IF.PSLVERR),
         .IRQ     (APB_IF.IRQ),
         .TXD     (UART_IF.rx), // DUT transmit to VIP receive
-        .RXD     (UART_IF.tx)  // VIP transmit to DUT receive 
+        .RXD     (UART_IF.tx),  // VIP transmit to DUT receive 
+        .baud_o  ()
     );
 
 

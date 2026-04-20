@@ -8,8 +8,107 @@ class apb_seq_base extends uvm_sequence #(apb_xtn);
     function new(string name="apb_seq_base");
         super.new(name);
     endfunction
+
+    bit [7:0] LCR; // Getting from test (for better control over LCR and avoid repetition)
+
+    task body();
+        if(!uvm_config_db #(bit [7:0])::get(null,get_full_name(),"lcr",LCR))
+            `uvm_fatal(get_type_name(),"Cannot get LCR in uart base sequence from TEST")
+
+        $display("------------------------- LCR Value in apb_sequence %0d",LCR);
+    endtask
 endclass 
 
+// Reset check 
+class apb_rst_check extends apb_seq_base;
+    `uvm_object_utils(apb_rst_check)
+
+    function new(string name="apb_rst_check_h");
+        super.new(name);
+    endfunction
+
+    task body();
+        req = apb_xtn::type_id::create("req");
+
+        // LCR
+        start_item(req); 
+        assert(req.randomize() with {
+            PRESETn == 1;
+            PADDR == 'h3; // LCR
+            PWRITE == 0; 
+        });
+        finish_item(req);
+        get_response(req);
+
+        if(req.PADDR == 'h3 && req.PRDATA == 0)
+            `uvm_info("RESET_CHECK",$sformatf("\nLCR match: %0h\n", req.PRDATA),UVM_INFO)
+        else
+            `uvm_error("RESET_CHECK", $sformatf("LCR mismatch: %0h", req.PRDATA));
+
+        // LSR
+        start_item(req);
+        assert(req.randomize() with {
+            PRESETn == 1;
+            PADDR == 'h5; // LSR
+            PWRITE == 0; 
+        });
+        finish_item(req);
+        get_response(req);
+
+        if(req.PADDR == 'h14 && req.PRDATA == 'h60)
+            `uvm_info("RESET_CHECK",$sformatf("\nLSR match: %0h\n", req.PRDATA),UVM_INFO)
+        else
+            `uvm_error("RESET_CHECK", $sformatf("LSR mismatch: %0h", req.PRDATA));
+
+        // IER
+        start_item(req);
+        assert(req.randomize() with {
+            PRESETn == 1;
+            PADDR == 'h1; // IER
+            PWRITE == 0; 
+        });
+        finish_item(req);
+        get_response(req);
+
+        if(req.PADDR == 'h1 && req.PRDATA == 0)
+            `uvm_info("RESET_CHECK",$sformatf("\nIER match: %0h\n", req.PRDATA),UVM_INFO)
+        else
+            `uvm_error("RESET_CHECK", $sformatf("IER mismatch: %0h", req.PRDATA));
+
+        // IIR
+        /* IIR mismatch — timing issue, not a value issue
+IIR reset value in RTL is 4'h1, so PRDATA should be 'h1. But log shows PRDATA = 0. The reason is a clocking skew issue in your driver — you are reading PRDATA on the same clock edge that PREADY goes high, but PRDATA from the combinational readback path needs one more cycle to be stable through the clocking block.*/
+        start_item(req);
+        assert(req.randomize() with {
+            PRESETn == 1;
+            PADDR == 'h2; // IIR
+            PWRITE == 0; 
+        });
+        finish_item(req);
+        get_response(req);
+
+        if(req.PADDR == 'h2 && req.PRDATA == 'h1)
+            `uvm_info("RESET_CHECK",$sformatf("\nIIR match: %0h\n", req.PRDATA),UVM_INFO)
+        else
+            `uvm_error("RESET_CHECK", $sformatf("IIR mismatch: %0h", req.PRDATA));
+
+        // MCR 
+        start_item(req);
+        assert(req.randomize() with {
+            PRESETn == 1;
+            PADDR == 'h4; // FCR
+            PWRITE == 0; 
+        });
+        finish_item(req);
+        get_response(req);
+
+        if(req.PADDR == 'h4 && req.PRDATA == 'h0)
+            `uvm_info("RESET_CHECK",$sformatf("\nMCR match: %0h\n", req.PRDATA),UVM_INFO)
+        else
+            `uvm_error("RESET_CHECK", $sformatf("MCR mismatch: %0h", req.PRDATA));
+       
+    endtask
+endclass 
 
 // half duplex ------------------------------
 class apb_half_duplex extends apb_seq_base;
@@ -109,8 +208,9 @@ class apb_full_duplex extends apb_seq_base;
     endfunction
 
      task body();
-        //super.body();
+        super.body();
         req = apb_xtn::type_id::create("req");
+        req.LCR = LCR; // If this is not set --> Full duplex will fail. 
         $display("<<<<<<<<----------<<<<<<<< Full Duplex sequence started >>>>>>>>---------->>>>>>>>");
 
         // DIVISOR LATCH REG - MSB
@@ -125,7 +225,7 @@ class apb_full_duplex extends apb_seq_base;
 
         // LINE CONTROL REG 
         start_item(req);
-        assert(req.randomize() with {PADDR==32'hC; PWRITE==1; PWDATA==8'b0000_0011;});
+        assert(req.randomize() with {PADDR==32'hC; PWRITE==1; PWDATA==LCR;});
         finish_item(req);
 
         // FIFO (ENABLE)CONTROL REG 
@@ -207,8 +307,10 @@ class apb_overrun_seq extends apb_seq_base;
     endfunction
 
     task body();
-
+        super.body();
+        $display("----------------------------- APB Overrun Sequence -----------------------------");
         req = apb_xtn::type_id::create("req");
+        req.LCR = LCR;
 
         // DIV1 MSB
         start_item(req);
@@ -222,24 +324,41 @@ class apb_overrun_seq extends apb_seq_base;
 
         // NORMAL_MODE_LCR
         start_item(req);
-        assert(req.randomize() with { PADDR == 32'h0c; PWRITE == 1; PWDATA == 8'h0000_0111; }); // How to get the LCR from test here ?
+        assert(req.randomize() with { PADDR == 32'h0c; PWRITE == 1; PWDATA == LCR; }); // lcr is 7 stop bit is 1
         finish_item(req);
 
         // FCR
         start_item(req);
-        assert(req.randomize() with { PADDR == 32'h08; PWRITE == 1; PWDATA == 8'b00000100; });
-        finish_item(req);
+        assert(req.randomize() with { PADDR == 32'h08; PWRITE == 1; PWDATA == 8'b1100_0111; }); //Once the flush is done, bits[1:2] auto-reset to 0, but bit[0] stays as you set it. That's why you need 8'b00000111 — so FIFO remains enabled after the flush.
+        finish_item(req); // Changed threshold value to 14 as repeat happening 17 times 
+        /*
+        FCR = 8'b00000111 (0x07)
+
+        You flush first (bits[1:2] = 1) to start from a clean empty FIFO
+        You keep it enabled (bit[0] = 1) so the FIFO stays active after flush
+        After flush completes, bits[1:2] auto-clear to 0, leaving FCR = 8'b00000001
+
+            bit[0] = 1 → FIFO Enable    : Keeps FIFO active after flush
+            bit[1] = 1 → RX FIFO Reset  : Flushes RX FIFO (self-clearing)
+            bit[2] = 1 → TX FIFO Reset  : Flushes TX FIFO (self-clearing)
+
+            After flush:
+            - bits[1:2] auto-clear to 0
+            - bit[0] stays 1 → FIFO remains enabled
+            - Result: Clean empty FIFO, ready to be filled
+
+            Why this matters for Overrun:
+            - FIFO disabled → only 1 byte buffer → overrun on 2nd byte (unreliable test)
+            - FIFO enabled  → 16 byte buffer → fill all 16 + 1 in shift register
+                → controlled overrun on 17th write (correct test)
+        */
 
         // IER
-        start_item(req);start_item(req);
-        assert(req.randomize() with { PADDR == 32'h04; PWRITE == 1; PWDATA == 8'b00000101; });
+        //start_item(req);start_item(req);  // ← duplicate start_item! --> This will cause a sequencer hang or protocol violation — the item is started twice before being finished.
+        start_item(req); // Removed repeated start_item
+        assert(req.randomize() with { PADDR == 32'h04; PWRITE == 1; PWDATA == 8'b0000_0100; });
         finish_item(req);
 
-        repeat (17) begin
-            start_item(req);
-            assert(req.randomize() with { PADDR == 32'h00; PWRITE == 1; });
-            finish_item(req);
-        end
     endtask
 endclass
 
@@ -272,7 +391,53 @@ class apb_framing_seq extends apb_seq_base;
 
         // NORMAL_MODE_LCR
         start_item(req);
-        assert(req.randomize() with { PADDR == 32'h0c; PWRITE == 1; PWDATA == 8'h0000_0011; }); // How to get the LCR from test here ?
+        assert(req.randomize() with { PADDR == 32'h0c; PWRITE == 1; PWDATA == 8'h0000_0111; }); 
+                        // LCR[2] high (2 stop bits => Receiving 1 stop bit ==> Framing error)
+        finish_item(req);
+
+        // FCR
+        start_item(req);
+        assert(req.randomize() with { PADDR == 32'h08; PWRITE == 1; PWDATA == 8'b00000110; }); // No need to enable fifo, not storing values => FCR=8'h06 is correct for error tests — just flushes TX/RX FIFOs and leaves FIFO disabled. One frame is enough to trigger framing/parity error so don't need FIFO enabled.
+        finish_item(req);
+
+        // IER
+        // start_item(req);start_item(req); // Causing the halt in simulation. 
+        start_item(req); 
+        assert(req.randomize() with { PADDR == 32'h04; PWRITE == 1; PWDATA == 8'b00000100; });
+        finish_item(req);
+
+    endtask
+endclass
+
+//------------------------------------------------ PARITY SEQUENCE ------------------------------------------------
+class apb_parity_seq extends apb_seq_base;
+
+    `uvm_object_utils(apb_parity_seq)
+
+    function new(string name = "apb_parity_seq");
+        super.new(name);
+    endfunction
+
+    task body();
+
+        super.body();
+
+        req = apb_xtn::type_id::create("req");
+        req.LCR = LCR;
+
+        // DIV1 MSB
+        start_item(req);
+        assert(req.randomize() with { PADDR == 32'h20; PWRITE == 1; PWDATA == 0; });
+        finish_item(req);
+
+        // DIV2 LSB
+        start_item(req);
+        assert(req.randomize() with { PADDR == 32'h1c; PWRITE == 1; PWDATA == 54; });
+        finish_item(req);
+
+        // NORMAL_MODE_LCR
+        start_item(req);
+        assert(req.randomize() with { PADDR == 32'h0c; PWRITE == 1; PWDATA == LCR; }); // LCR[3] high => 1 is even parity, 0 is odd. bad parity enabled in uart_seq. Means it should give us even parity while we want odd parity
         finish_item(req);
 
         // FCR
@@ -281,12 +446,144 @@ class apb_framing_seq extends apb_seq_base;
         finish_item(req);
 
         // IER
-        start_item(req);start_item(req);
+        start_item(req); 
         assert(req.randomize() with { PADDR == 32'h04; PWRITE == 1; PWDATA == 8'b00000100; });
         finish_item(req);
 
-        start_item(req);
-        assert(req.randomize() with { PADDR == 32'h00; PWRITE == 1; });
-        finish_item(req);
+        // start_item(req);
+        // assert(req.randomize() with { PADDR == 32'h00; PWRITE == 1; });
+        // finish_item(req);
     endtask
 endclass
+
+
+//------------------------------------------------ Break SEQUENCE ------------------------------------------------
+class apb_break_seq extends apb_seq_base;
+
+    `uvm_object_utils(apb_break_seq)
+
+    function new(string name = "apb_break_seq");
+        super.new(name);
+    endfunction
+
+    task body();
+
+        super.body();
+
+        req = apb_xtn::type_id::create("req");
+
+        // DIV1 MSB
+        start_item(req);
+        assert(req.randomize() with { PADDR == 32'h20; PWRITE == 1; PWDATA == 0; });
+        finish_item(req);
+
+        // DIV2 LSB
+        start_item(req);
+        assert(req.randomize() with { PADDR == 32'h1c; PWRITE == 1; PWDATA == 54; });
+        finish_item(req);
+
+        // NORMAL_MODE_LCR
+        start_item(req);
+        assert(req.randomize() with { PADDR == 32'h0c; PWRITE == 1; PWDATA == LCR; }); // LCR[6] high => 1 is break error.
+        finish_item(req);
+
+        // FCR
+        start_item(req);
+        assert(req.randomize() with { PADDR == 32'h08; PWRITE == 1; PWDATA == 8'b0000_0110; }); // For time out we might need to read and store values as there will be another frame on the way but doesn't come so timeout 
+        finish_item(req);
+
+        // IER
+        start_item(req); 
+        assert(req.randomize() with { PADDR == 32'h04; PWRITE == 1; PWDATA == 8'b0000_0100; });
+        finish_item(req);
+
+    endtask
+endclass
+
+
+//------------------------------------------------ Timeout SEQUENCE ------------------------------------------------
+class apb_timeout_seq extends apb_seq_base;
+
+    `uvm_object_utils(apb_timeout_seq)
+
+    function new(string name = "apb_timeout_seq");
+        super.new(name);
+    endfunction
+
+    task body();
+
+        super.body();
+
+        req = apb_xtn::type_id::create("req");
+
+        // DIV1 MSB
+        start_item(req);
+        assert(req.randomize() with { PADDR == 32'h20; PWRITE == 1; PWDATA == 0; });
+        finish_item(req);
+
+        // DIV2 LSB
+        start_item(req);
+        assert(req.randomize() with { PADDR == 32'h1c; PWRITE == 1; PWDATA == 54; });
+        finish_item(req);
+
+        // NORMAL_MODE_LCR
+        start_item(req);
+        assert(req.randomize() with { PADDR == 32'h0c; PWRITE == 1; PWDATA == LCR; }); // LCR[6] high => 1 is break error.
+        finish_item(req);
+
+        // FCR
+        start_item(req);
+        assert(req.randomize() with { PADDR == 32'h08; PWRITE == 1; PWDATA == 8'b0100_0110; }); // trigger level is 4, data should not come till 4 frames.
+        finish_item(req);
+
+        // IER
+        start_item(req); 
+        assert(req.randomize() with { PADDR == 32'h04; PWRITE == 1; PWDATA == 8'b0000_0100; });
+        finish_item(req);
+
+    endtask
+endclass
+
+
+// //------------------------------------------------ THR EMPTY SEQUENCE ------------------------------------------------
+// class apb_thr_empty_seq extends apb_seq_base;
+
+//     `uvm_object_utils(apb_thr_empty_seq)
+
+//     function new(string name = "apb_thr_empty_seq");
+//         super.new(name);
+//     endfunction
+
+//     task body();
+
+//         super.body();
+
+//         req = apb_xtn::type_id::create("req");
+
+//         // DIV1 MSB
+//         start_item(req);
+//         assert(req.randomize() with { PADDR == 32'h20; PWRITE == 1; PWDATA == 0; });
+//         finish_item(req);
+
+//         // DIV2 LSB
+//         start_item(req);
+//         assert(req.randomize() with { PADDR == 32'h1c; PWRITE == 1; PWDATA == 54; });
+//         finish_item(req);
+
+//         // NORMAL_MODE_LCR
+//         start_item(req);
+//         assert(req.randomize() with { PADDR == 32'h0c; PWRITE == 1; PWDATA == LCR; }); // LCR[6] high => 1 is break error.
+//         finish_item(req);
+
+//         // FCR
+//         start_item(req);
+//         assert(req.randomize() with { PADDR == 32'h08; PWRITE == 1; PWDATA == 8'b0100_0110; });
+//         finish_item(req);
+
+//         // IER
+//         start_item(req); 
+//         assert(req.randomize() with { PADDR == 32'h04; PWRITE == 1; PWDATA == 8'b0000_0100; });
+//         finish_item(req);
+
+//     endtask
+// endclass

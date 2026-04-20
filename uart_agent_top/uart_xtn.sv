@@ -20,6 +20,7 @@ class uart_xtn extends uvm_sequence_item;
     virtual function void do_print(uvm_printer printer);
         printer.print_field("tx",      tx,      8,  UVM_DEC);
         printer.print_field("rx",      rx,      8,  UVM_DEC);
+        printer.print_field("parity",  parity,  1,  UVM_DEC);
     endfunction
 
     function void post_randomize(); 

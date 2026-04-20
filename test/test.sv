@@ -84,7 +84,7 @@ class base_test extends uvm_test;
     function void build_phase(uvm_phase phase);
         super.build_phase(phase);
         env_cfg = env_config::type_id::create("env_cfg");
-        lcr = 8'h3;
+        // lcr = 8'h3;
         // if(has_uart_agent)
         //     env_cfg.uart_cfg = new[has_no_of_agent];
         // call config function 
@@ -99,13 +99,37 @@ class base_test extends uvm_test;
         $display("------env config has %p",env_cfg);
 
         uvm_config_db #(bit [7:0])::set(this,"*","lcr",lcr);
-        $display("lcr value in half_duplex_test = %p",lcr);
 
         //vseqh = vseq::type_id::create("vseqh");
         envh = env::type_id::create("envh",this);
     endfunction 
 endclass 
 
+//---------------------------------------------------- Half Duplex Test -------------------------------------------
+
+
+class reset_test extends base_test; 
+    `uvm_component_utils(reset_test)
+
+    function new(string name="",uvm_component parent);
+        super.new(name,parent);
+    endfunction
+
+    apb_rst_check apb_rst_check_h;
+    
+    function void build_phase(uvm_phase phase);
+        super.lcr = 8'h03;  // why is this not working ? 
+        super.build_phase(phase);
+    endfunction 
+
+    task run_phase(uvm_phase phase);
+        apb_rst_check_h = apb_rst_check::type_id::create("apb_rst_check_h");
+
+        phase.raise_objection(this);
+        apb_rst_check_h.start(envh.apb_agent_top_h.apb_agent_h.apb_seqr_h);
+        phase.drop_objection(this);
+    endtask
+endclass 
 
 //---------------------------------------------------- Half Duplex Test -------------------------------------------
 
@@ -171,7 +195,7 @@ class full_duplex_test extends base_test;
     //bit [7:0] lcr; 
 
     function void build_phase(uvm_phase phase);
-        super.lcr = 8'h03;  // why is this not working ? 
+        super.lcr = 8'h03; 
         super.build_phase(phase);
     endfunction 
 
@@ -239,7 +263,7 @@ endclass
 
 //---------------------------------------------------- Overrun Test -------------------------------------------
 
-class overrun_test extends base_test; 
+class overrun_test extends base_test;  // Working fine 
     `uvm_component_utils(overrun_test)
 
     function new(string name="",uvm_component parent);
@@ -251,6 +275,7 @@ class overrun_test extends base_test;
     apb_read_seq apb_read_seq_h; 
 
     function void build_phase(uvm_phase phase);
+        super.lcr = 8'h03; // If this is set before super.buildphase then build phase will override super.lcr with it's own values so always set it after super.buildphase. (but setting it later will miss the setting as set happens in base build so we remove hardcode of lcr in base and set it first then call build super so now it sets properly)
         super.build_phase(phase);
     endfunction 
 
@@ -263,15 +288,17 @@ class overrun_test extends base_test;
         apb_read_seq_h = apb_read_seq::type_id::create("apb_read_seq_h");
 
         phase.raise_objection(this);
+
         fork 
-            begin 
-                apb_overrun_seq_h.start(envh.apb_agent_top_h.apb_agent_h.apb_seqr_h);
-                apb_read_seq_h.start(envh.apb_agent_top_h.apb_agent_h.apb_seqr_h); 
-            end
-            begin 
-                uart_overrun_seq_h.start(envh.uart_agent_top_h.uart_agent_h.uart_seqr_h); 
-            end
-        join
+            uart_overrun_seq_h.start(envh.uart_agent_top_h.uart_agent_h.uart_seqr_h); 
+        join_none // Let UART run in background
+            apb_overrun_seq_h.start(envh.apb_agent_top_h.apb_agent_h.apb_seqr_h);
+        wait fork; // Wait for UART to finish all 17 frames
+            apb_read_seq_h.start(envh.apb_agent_top_h.apb_agent_h.apb_seqr_h);
+    /*
+    `join_none` launches UART in background, APB config runs in foreground at the same time. `wait fork` just ensures read sequence only fires after UART finishes all 17 frames — because only then is the FIFO full and IRQ asserted, which is what the read sequence needs to check.        
+    */
+
         phase.phase_done.set_drain_time(this,200000);
         
         phase.drop_objection(this);
@@ -281,7 +308,7 @@ class overrun_test extends base_test;
 endclass 
 
 
-//---------------------------------------------------- Overrun Test -------------------------------------------
+//---------------------------------------------------- Framing Test -------------------------------------------
 
 class framing_test extends base_test; 
     `uvm_component_utils(framing_test)
@@ -295,6 +322,7 @@ class framing_test extends base_test;
     apb_read_seq apb_read_seq_h; 
 
     function void build_phase(uvm_phase phase);
+        super.lcr = 8'h03;
         super.build_phase(phase);
     endfunction 
 
@@ -310,12 +338,163 @@ class framing_test extends base_test;
         fork 
             begin 
                 apb_framing_seq_h.start(envh.apb_agent_top_h.apb_agent_h.apb_seqr_h);
-                apb_read_seq_h.start(envh.apb_agent_top_h.apb_agent_h.apb_seqr_h); 
             end
             begin 
                 uart_framing_seq_h.start(envh.uart_agent_top_h.uart_agent_h.uart_seqr_h); 
             end
         join
+        wait fork; 
+            apb_read_seq_h.start(envh.apb_agent_top_h.apb_agent_h.apb_seqr_h); 
+
+        phase.phase_done.set_drain_time(this,200000);
+        
+        phase.drop_objection(this);
+    endtask
+
+
+endclass 
+
+
+//---------------------------------------------------- Parity Test -------------------------------------------
+
+class parity_test extends base_test; 
+    `uvm_component_utils(parity_test)
+
+    function new(string name="",uvm_component parent);
+        super.new(name,parent);
+    endfunction
+
+    apb_parity_seq apb_parity_seq_h; // This has read sequence inside
+    uart_parity_seq uart_parity_seq_h;
+    apb_read_seq apb_read_seq_h; 
+
+    function void build_phase(uvm_phase phase);
+        super.lcr = 8'h0B; // B = 1011 (so 1 stop bit only)
+        super.build_phase(phase);
+    endfunction 
+
+    task run_phase(uvm_phase phase);
+
+        $display("---------------<<<<<xxxxxxxxxx Parity is RUNNING xxxxxxxxxx>>>>>---------------");
+        super.run_phase(phase);
+        apb_parity_seq_h = apb_parity_seq::type_id::create("apb_parity_seq_h");
+        uart_parity_seq_h = uart_parity_seq::type_id::create("uart_parity_seq_h");
+        apb_read_seq_h = apb_read_seq::type_id::create("apb_read_seq_h");
+
+        phase.raise_objection(this);
+
+        fork 
+            uart_parity_seq_h.start(envh.uart_agent_top_h.uart_agent_h.uart_seqr_h); 
+        join_none
+            apb_parity_seq_h.start(envh.apb_agent_top_h.apb_agent_h.apb_seqr_h);
+
+        wait fork; // Wait for uart and apb sequence to be completed. Then read. 
+            apb_read_seq_h.start(envh.apb_agent_top_h.apb_agent_h.apb_seqr_h); 
+
+        phase.phase_done.set_drain_time(this,200000);
+        
+        phase.drop_objection(this);
+    endtask
+
+
+endclass 
+
+
+//---------------------------------------------------- Break Test -------------------------------------------
+
+class break_test extends base_test; 
+    `uvm_component_utils(break_test)
+
+    function new(string name="",uvm_component parent);
+        super.new(name,parent);
+    endfunction
+
+    apb_break_seq apb_break_seq_h; // This has read sequence inside
+    uart_break_seq uart_break_seq_h;
+    apb_read_seq apb_read_seq_h; 
+
+    function void build_phase(uvm_phase phase);
+        // super.lcr = 8'b0100_0011;
+        super.lcr = 8'b0000_0011; // lcr made 3
+        super.build_phase(phase);
+    /*
+    The UART agent is the one creating the break condition by sending stop_bit=0. The DUT's LCR[6] is irrelevant here because:
+    LCR[6]=1 would make the DUT's own TX hold low — that's for testing the other side
+    You're testing the DUT's RX, so the break comes from the UART agent side    
+    */
+    endfunction 
+
+    task run_phase(uvm_phase phase);
+
+        $display("---------------<<<<<xxxxxxxxxx Break is RUNNING xxxxxxxxxx>>>>>---------------");
+        super.run_phase(phase);
+        apb_break_seq_h = apb_break_seq::type_id::create("apb_break_seq_h");
+        uart_break_seq_h = uart_break_seq::type_id::create("uart_break_seq_h");
+        apb_read_seq_h = apb_read_seq::type_id::create("apb_read_seq_h");
+
+        phase.raise_objection(this);
+
+        fork 
+            uart_break_seq_h.start(envh.uart_agent_top_h.uart_agent_h.uart_seqr_h); 
+        join_none
+            apb_break_seq_h.start(envh.apb_agent_top_h.apb_agent_h.apb_seqr_h);
+        wait fork;   
+            apb_read_seq_h.start(envh.apb_agent_top_h.apb_agent_h.apb_seqr_h);
+        /*
+        Break was failing and "framing was coming" Becasue read was happening before uart_break_seq was completed.
+        */
+        phase.phase_done.set_drain_time(this,200000);
+        
+        phase.drop_objection(this);
+    endtask
+
+
+endclass 
+
+
+//---------------------------------------------------- timeout Test -------------------------------------------
+
+class timeout_test extends base_test; 
+    `uvm_component_utils(timeout_test)
+
+    function new(string name="",uvm_component parent);
+        super.new(name,parent);
+    endfunction
+
+    apb_timeout_seq apb_timeout_seq_h; // This has read sequence inside
+    uart_timeout_seq uart_timeout_seq_h;
+    apb_read_seq apb_read_seq_h; 
+
+    function void build_phase(uvm_phase phase);
+        super.lcr = 8'b0000_0011;
+        super.build_phase(phase);
+    endfunction 
+
+    task run_phase(uvm_phase phase);
+
+        $display("---------------<<<<<xxxxxxxxxx Timeout is RUNNING xxxxxxxxxx>>>>>---------------");
+        super.run_phase(phase);
+        apb_timeout_seq_h = apb_timeout_seq::type_id::create("apb_timeout_seq_h");
+        uart_timeout_seq_h = uart_timeout_seq::type_id::create("uart_timeout_seq_h");
+        apb_read_seq_h = apb_read_seq::type_id::create("apb_read_seq_h");
+
+        phase.raise_objection(this);
+        //---> Perfectly works
+        // fork   
+        //     apb_timeout_seq_h.start(envh.apb_agent_top_h.apb_agent_h.apb_seqr_h);
+        // join
+        //     uart_timeout_seq_h.start(envh.uart_agent_top_h.uart_agent_h.uart_seqr_h); // Why Uart seq outside fork ? Because in time out we want to read before uart sends the frame so when nothing to read then timeout like that. when fork ends read starts instantly causing timeout.
+        // wait fork;   
+        //         apb_read_seq_h.start(envh.apb_agent_top_h.apb_agent_h.apb_seqr_h);
+
+            fork 
+                uart_timeout_seq_h.start(envh.uart_agent_top_h.uart_agent_h.uart_seqr_h); // Uart seq runs sends 3 frames 
+            join_none 
+            apb_timeout_seq_h.start(envh.apb_agent_top_h.apb_agent_h.apb_seqr_h); // Configure first
+            wait fork; 
+                apb_read_seq_h.start(envh.apb_agent_top_h.apb_agent_h.apb_seqr_h); // Uart reads and expects 4 frames -> only 3 came - keeps waiting then timeout.
+
+
         phase.phase_done.set_drain_time(this,200000);
         
         phase.drop_objection(this);

@@ -8,7 +8,7 @@ class apb_mon extends uvm_monitor;
     apb_agent_config apb_cfg;
     virtual apb_if vif;
     apb_xtn xtn_h;
-    static int rx_count;
+    int rx_count;
 
     uvm_analysis_port #(apb_xtn) apb_mon_port;
 
@@ -37,7 +37,7 @@ class apb_mon extends uvm_monitor;
         forever begin : monitor_loop
             // xtn_h = apb_xtn::type_id::create("xtn_h");
             collect_data();
-            $display("[%0t] RX BYTE ARRIVED FROM TX", $time);
+            $display("[%0t] RX BYTE [%b] ARRIVED FROM TX", $time,xtn_h.PRDATA,);
             $display("APB MON ==> SAMPLING THE DATA------------------");
             xtn_h.print();
         end : monitor_loop
@@ -173,10 +173,10 @@ class apb_mon extends uvm_monitor;
                 if(xtn_h.PADDR == 32'h0 &&
                     xtn_h.PWRITE == 0) // We configure in sequence 
                     begin : RBR_REG
-                        if(!xtn_h.PRDATA == 0) begin // Not pushing if prdata is 0
+                        //if(!xtn_h.PRDATA == 0) begin // Not pushing if prdata is 0
                             xtn_h.data_in_rbr = 1;
                             xtn_h.RBR.push_back(xtn_h.PRDATA);
-                        end
+                        //end
                         `uvm_info("\n[APB_MON",$sformatf("/// RBR DATA /// : %p",xtn_h.RBR),UVM_LOW)
                     end : RBR_REG
                 //`uvm_info("\n[APB_MON",$sformatf("<<<<<<------- EXITED RBR IN APB MON  ------->>>>>>: %p",xtn_h.RBR),UVM_LOW)

@@ -312,6 +312,7 @@ class sb extends uvm_scoreboard;
 
 
         $display("///////// IIR value in SB //////////= %0d at time=%0t",uart_core.IIR, $time); 
+        $display("///////// LSR value in SB //////////= %b at time=%0t",uart_core.LSR, $time); 
 
         if(uart_core.IIR[3:0] == 4) begin // Receive data threshold interrupt 
             if(uart_core.MCR[4] == 0) begin // Check whether loop back is present

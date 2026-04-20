@@ -144,7 +144,7 @@ Version                 :       1.0
                     end
                 ACCESS: 
                     begin
-                        PREADY <= 1'b1;
+                      PREADY <= 1'b1;
                         we <= 1'b0;
                         if(PWRITE == 1'b0)
                             re <= 1'b1;
@@ -153,6 +153,7 @@ Version                 :       1.0
                 default: fsm_state <= IDLE;
                 endcase
      end
+
 
    //One clock pulse per enable --> explaination below -> ~pclk used to avoid meta stability
    assign baud_o = ~PCLK && enable; // baud_o is used as the clock input to the transmitter and receiver logic, 

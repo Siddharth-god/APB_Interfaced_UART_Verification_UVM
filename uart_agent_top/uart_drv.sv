@@ -40,6 +40,7 @@ class uart_drv extends uvm_driver #(uart_xtn);
 
     task send_data(bit tx);
         vif.uart_drv_cb.tx <= tx; 
+        $display("Data send to uart core -------------> %0d",tx);
         repeat(16) @(posedge vif.uart_drv_cb.baud_o);
     endtask  
 
@@ -52,6 +53,7 @@ class uart_drv extends uvm_driver #(uart_xtn);
         $display("=========================== UART AGENT DRV After Guard TIME ============================");
 
         vif.uart_drv_cb.tx <= 0; // Start bit 
+        $display("Start bit sent to uart core -------------> 0");
 
         repeat(16) @(posedge vif.uart_drv_cb.baud_o);
 
@@ -59,14 +61,23 @@ class uart_drv extends uvm_driver #(uart_xtn);
             send_data(xtnh.tx[i]);  
         end
 
-        if(LCR[3])
+        if(LCR[3]) begin 
+            $display("Parity bit below : ");
             send_data(xtnh.parity); // we already calculated parity in post_randomize in xtn we use that 
+        end
 
+        $display("Stop bit below : ");
         send_data(xtnh.stop_bit);
             
         if(LCR[2] == 1) begin // if stop bits are 2
-            if(LCR[1:0] == 2'b00) // Why only for 5 bits ?? Don't we check 6-8 ? 
-                repeat(8) @(posedge vif.uart_drv_cb.baud_o);
-        end   
+            if(LCR[1:0] == 2'b00) // Only 1.5 stop bits for 5-bit data words
+                repeat(8) @(posedge vif.uart_drv_cb.baud_o); // Add 8 cycle extra delay
+            else
+                repeat(16) @(posedge vif.uart_drv_cb.baud_o); // Full second stop bit for 6-8 bit words
+        end
+        /*
+            LCR[2] = 0 → 1 stop bit  → driver sends stop_bit value once
+            LCR[2] = 1 → 2 stop bits → driver sends stop_bit value + extra 16 baud clocks
+        */
     endtask  
 endclass 
